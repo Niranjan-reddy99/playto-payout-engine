@@ -3,3 +3,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+
+# Default command runs the API server.
+# Railway/Render override this per service (worker uses celery, beat uses celery beat).
+CMD ["gunicorn", "playto.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2"]

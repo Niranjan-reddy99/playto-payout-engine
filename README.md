@@ -121,6 +121,66 @@ docker-compose exec api python manage.py test payouts.tests --verbosity=2
 
 ---
 
+## Deploying to Production (Railway + Vercel)
+
+### Backend → Railway
+
+Railway gives you free PostgreSQL + Redis + multiple services in one project.
+
+**Step 1 — Create a Railway project**
+1. Go to [railway.app](https://railway.app) and sign in with GitHub
+2. Click **New Project → Deploy from GitHub repo** → select this repo
+3. Set **Root Directory** to `backend`
+4. Railway will detect the Dockerfile automatically
+
+**Step 2 — Add PostgreSQL and Redis**
+1. In your project, click **+ New** → **Database** → **PostgreSQL**
+2. Click **+ New** → **Database** → **Redis**
+3. Both will auto-inject `DATABASE_URL` and `REDIS_URL` into the API service
+
+**Step 3 — Set environment variables on the API service**
+```
+SECRET_KEY          = <any long random string>
+ALLOWED_HOSTS       = .railway.app
+CORS_ALLOWED_ORIGINS = https://your-frontend.vercel.app   ← fill in after frontend deploy
+CSRF_TRUSTED_ORIGINS = https://your-frontend.vercel.app   ← same
+DEBUG               = False
+```
+
+**Step 4 — Add Celery worker service**
+1. Click **+ New** → **GitHub Repo** → same repo, root directory `backend`
+2. Set **Start Command** to: `celery -A playto worker -l info -c 2`
+3. Share the same DATABASE_URL, REDIS_URL, SECRET_KEY env vars
+
+**Step 5 — Add Celery beat service** (scheduled tasks)
+1. Same process, start command: `celery -A playto beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler`
+
+**Step 6 — Seed the database**
+```bash
+# In Railway dashboard → API service → Shell tab
+python manage.py migrate
+python manage.py seed_data
+```
+
+---
+
+### Frontend → Vercel
+
+1. Go to [vercel.com](https://vercel.com) → **Add New Project** → import this GitHub repo
+2. Set **Root Directory** to `frontend`
+3. Add environment variable: `VITE_API_URL = https://your-api.railway.app`
+4. Click **Deploy**
+
+After Vercel gives you the URL, go back to Railway and update `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` with that URL.
+
+---
+
+### Alternative: Render (one render.yaml)
+
+A `render.yaml` is included in the repo root. See the comments inside it for setup instructions. Note: Render workers require a paid plan ($7/month) — Railway is recommended for free deployment.
+
+---
+
 ## Architecture Notes
 
 See `EXPLAINER.md` for a deep-dive on the lock strategy, ledger design, and idempotency approach.

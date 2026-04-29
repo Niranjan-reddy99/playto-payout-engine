@@ -113,7 +113,8 @@ CORS_ALLOW_HEADERS = [
 ]
 
 CSRF_TRUSTED_ORIGINS = config(
-    'CSRF_TRUSTED_ORIGINS', default='http://localhost:5175'
+    'CSRF_TRUSTED_ORIGINS',
+    default='http://localhost:5175,https://*.vercel.app,https://*.railway.app'
 ).split(',')
 
 # Cross-origin cookie settings — required for Vercel (frontend) → Railway (backend).

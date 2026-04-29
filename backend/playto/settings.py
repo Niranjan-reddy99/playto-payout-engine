@@ -1,4 +1,5 @@
 from pathlib import Path
+import ssl
 from decouple import config
 import dj_database_url
 from celery.schedules import crontab
@@ -131,6 +132,14 @@ CSRF_COOKIE_SECURE = True
 REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
+
+# Railway Redis commonly uses rediss:// (Redis over TLS). Celery requires
+# explicit SSL settings for those URLs or task publish/worker startup fails
+# with "A rediss:// URL must have parameter ssl_cert_reqs".
+if REDIS_URL.startswith('rediss://'):
+    CELERY_BROKER_USE_SSL = {'ssl_cert_reqs': ssl.CERT_NONE}
+    CELERY_REDIS_BACKEND_USE_SSL = {'ssl_cert_reqs': ssl.CERT_NONE}
+
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_TIMEZONE = 'UTC'
 

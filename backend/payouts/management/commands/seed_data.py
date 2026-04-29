@@ -2,6 +2,11 @@ import uuid
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
 from payouts.models import Merchant, LedgerEntry, PayoutRequest
+from payouts.services import get_balance_breakdown
+
+
+TARGET_DEMO_AVAILABLE_PAISE = 2_000_000
+TOP_UP_DESCRIPTION = "Demo balance top-up to 20000 INR"
 
 
 class Command(BaseCommand):
@@ -44,6 +49,25 @@ class Command(BaseCommand):
             )
 
             if LedgerEntry.objects.filter(merchant=merchant).exists():
+                if not LedgerEntry.objects.filter(
+                    merchant=merchant,
+                    entry_type='credit',
+                    description=TOP_UP_DESCRIPTION,
+                ).exists():
+                    balance = get_balance_breakdown(merchant.id)
+                    delta = TARGET_DEMO_AVAILABLE_PAISE - balance['available_paise']
+                    if delta > 0:
+                        LedgerEntry.objects.create(
+                            merchant=merchant,
+                            entry_type='credit',
+                            amount_paise=delta,
+                            description=TOP_UP_DESCRIPTION,
+                        )
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f"Topped up {merchant.name} by {delta} paise to demo balance"
+                            )
+                        )
                 self.stdout.write(f"Skipping {merchant.name} - already seeded")
                 continue
 
@@ -94,6 +118,16 @@ class Command(BaseCommand):
                 amount_paise=20000, payout=failed_payout,
                 description="Funds returned for failed payout"
             )
+
+            balance = get_balance_breakdown(merchant.id)
+            delta = TARGET_DEMO_AVAILABLE_PAISE - balance['available_paise']
+            if delta > 0:
+                LedgerEntry.objects.create(
+                    merchant=merchant,
+                    entry_type='credit',
+                    amount_paise=delta,
+                    description=TOP_UP_DESCRIPTION,
+                )
 
             self.stdout.write(self.style.SUCCESS(f"Seeded {merchant.name}"))
 

@@ -8,6 +8,9 @@ export function useBalance() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  // useCallback so the function reference stays stable across renders.
+  // Without this, putting `fetch` in the useEffect dependency array would
+  // cause an infinite loop (new function reference → re-run effect → repeat).
   const fetch = useCallback(async () => {
     try {
       const res = await apiClient.get<Balance>('/balance/');
@@ -22,9 +25,9 @@ export function useBalance() {
   }, []);
 
   useEffect(() => {
-    fetch();
-    const interval = setInterval(fetch, 5000);
-    return () => clearInterval(interval);
+    fetch(); // load immediately on mount
+    const interval = setInterval(fetch, 5000); // then refresh every 5 seconds
+    return () => clearInterval(interval); // clean up when component unmounts
   }, [fetch]);
 
   return { balance, loading, error, lastUpdated, refetch: fetch };

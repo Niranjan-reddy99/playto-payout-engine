@@ -1,4 +1,4 @@
-import { useState, FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { apiClient } from '../api/client';
 import { generateIdempotencyKey, currencyToPaise } from '../utils/paise';
 

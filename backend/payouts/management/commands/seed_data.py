@@ -94,6 +94,11 @@ class Command(BaseCommand):
                 description="Hold for historical payout"
             )
             LedgerEntry.objects.create(
+                merchant=merchant, entry_type='unhold',
+                amount_paise=50000, payout=payout,
+                description="Hold released for historical completed payout"
+            )
+            LedgerEntry.objects.create(
                 merchant=merchant, entry_type='debit',
                 amount_paise=50000, payout=payout,
                 description="Historical payout completed"

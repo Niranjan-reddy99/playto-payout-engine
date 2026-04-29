@@ -127,6 +127,13 @@ def process_payout(self, payout_id):
             if result == 'success':
                 LedgerEntry.objects.create(
                     merchant=payout.merchant,
+                    entry_type='unhold',
+                    amount_paise=payout.amount_paise,
+                    payout=payout,
+                    description=f"Hold released for completed payout {payout.id}",
+                )
+                LedgerEntry.objects.create(
+                    merchant=payout.merchant,
                     entry_type='debit',
                     amount_paise=payout.amount_paise,
                     payout=payout,

@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from payouts.models import Merchant, LedgerEntry, PayoutRequest
+from payouts.services import get_balance_breakdown
 from payouts.tasks import process_payout, retry_pending_payouts
 
 
@@ -63,3 +64,28 @@ class PayoutTaskTest(TestCase):
         retry_pending_payouts()
 
         mock_delay.assert_called_once_with(str(payout.id))
+
+    @patch('payouts.tasks.simulate_bank_settlement', return_value='success')
+    def test_success_releases_hold_before_debiting(self, _mock_bank):
+        LedgerEntry.objects.create(
+            merchant=self.merchant,
+            entry_type='credit',
+            amount_paise=100000,
+            description="Initial credit",
+        )
+        payout = self.create_pending_payout(amount_paise=50000)
+
+        process_payout.run(str(payout.id))
+
+        payout.refresh_from_db()
+        balance = get_balance_breakdown(self.merchant.id)
+        self.assertEqual(payout.status, 'completed')
+        self.assertEqual(balance['held_paise'], 0)
+        self.assertEqual(balance['available_paise'], 50000)
+        self.assertTrue(
+            LedgerEntry.objects.filter(
+                payout=payout,
+                entry_type='unhold',
+                amount_paise=payout.amount_paise,
+            ).exists()
+        )

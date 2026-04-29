@@ -18,7 +18,7 @@ export function BalanceSummary() {
           <span className="font-medium text-amber-600">{formatINR(balance.held_inr)}</span>
         </div>
         <div>
-          <span className="text-gray-500">Total earned: </span>
+          <span className="text-gray-500">Net balance: </span>
           <span className="font-medium text-gray-700">{formatINR(balance.total_inr)}</span>
         </div>
       </div>

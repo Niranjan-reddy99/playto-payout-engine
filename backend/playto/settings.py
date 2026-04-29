@@ -112,10 +112,13 @@ CORS_ALLOW_HEADERS = [
     'idempotency-key',
 ]
 
-CSRF_TRUSTED_ORIGINS = config(
-    'CSRF_TRUSTED_ORIGINS',
-    default='http://localhost:5175,https://*.vercel.app,https://*.railway.app'
-).split(',')
+CSRF_TRUSTED_ORIGINS = list(set(
+    config('CSRF_TRUSTED_ORIGINS', default='http://localhost:5175').split(',') + [
+        'https://*.vercel.app',
+        'https://*.railway.app',
+        'http://localhost:5175',
+    ]
+))
 
 # Cross-origin cookie settings — required for Vercel (frontend) → Railway (backend).
 # Without SameSite=None; Secure, browsers block the sessionid cookie on cross-origin

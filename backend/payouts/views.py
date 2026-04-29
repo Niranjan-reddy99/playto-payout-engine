@@ -1,6 +1,7 @@
 import uuid
 import logging
 from datetime import timedelta
+from django.db import transaction
 from django.utils import timezone
 from django.contrib.auth import authenticate, login, logout
 from django.middleware.csrf import get_token
@@ -174,28 +175,28 @@ class PayoutListCreateView(APIView):
                 )
                 return Response(resp_data, status=resp_status)
 
-            payout = create_payout(
-                merchant_id=merchant.id,
-                amount_paise=serializer.validated_data['amount_paise'],
-                bank_account_id=serializer.validated_data['bank_account_id'],
-                idempotency_key=idempotency_key,
-            )
+            with transaction.atomic():
+                payout = create_payout(
+                    merchant_id=merchant.id,
+                    amount_paise=serializer.validated_data['amount_paise'],
+                    bank_account_id=serializer.validated_data['bank_account_id'],
+                    idempotency_key=idempotency_key,
+                )
 
-            resp_data = PayoutRequestSerializer(payout).data
-            resp_status = status.HTTP_201_CREATED
+                resp_data = PayoutRequestSerializer(payout).data
+                resp_status = status.HTTP_201_CREATED
 
-            IdempotencyRecord.objects.create(
-                merchant=merchant,
-                key=idempotency_key,
-                response_body=resp_data,
-                response_status=resp_status,
-                payout=payout,
-                expires_at=timezone.now() + timedelta(hours=24),
-            )
+                IdempotencyRecord.objects.create(
+                    merchant=merchant,
+                    key=idempotency_key,
+                    response_body=resp_data,
+                    response_status=resp_status,
+                    payout=payout,
+                    expires_at=timezone.now() + timedelta(hours=24),
+                )
 
-            # Queue the background job. If broker publish fails, keep the API
-            # response successful and let operators inspect logs / retry later.
-            dispatch_payout_task(payout.id)
+                # Publish only after the payout row + replay record are committed.
+                transaction.on_commit(lambda payout_id=payout.id: dispatch_payout_task(payout_id))
 
             return Response(resp_data, status=resp_status)
 

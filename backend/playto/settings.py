@@ -90,6 +90,15 @@ CORS_ALLOWED_ORIGINS = config(
     'CORS_ALLOWED_ORIGINS', default='http://localhost:5175'
 ).split(',')
 CORS_ALLOW_CREDENTIALS = True
+
+# Allow any Vercel preview/production deployments and Railway services
+# without needing to update env vars for every new deployment URL.
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r'^https://.*\.vercel\.app$',
+    r'^https://.*\.railway\.app$',
+    r'^http://localhost:\d+$',
+]
+
 CORS_ALLOW_HEADERS = [
     'accept',
     'accept-encoding',

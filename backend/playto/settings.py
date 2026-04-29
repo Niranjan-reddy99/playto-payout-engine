@@ -116,6 +116,14 @@ CSRF_TRUSTED_ORIGINS = config(
     'CSRF_TRUSTED_ORIGINS', default='http://localhost:5175'
 ).split(',')
 
+# Cross-origin cookie settings — required for Vercel (frontend) → Railway (backend).
+# Without SameSite=None; Secure, browsers block the sessionid cookie on cross-origin
+# requests even when withCredentials=true, causing 403 on every authenticated endpoint.
+SESSION_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SAMESITE = 'None'
+CSRF_COOKIE_SECURE = True
+
 REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL

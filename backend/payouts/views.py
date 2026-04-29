@@ -1,4 +1,5 @@
 import uuid
+import logging
 from datetime import timedelta
 from django.utils import timezone
 from django.contrib.auth import authenticate, login, logout
@@ -22,6 +23,7 @@ from .exceptions import InsufficientFundsError, InvalidTransitionError
 from .tasks import process_payout
 
 redis_client = redis.Redis.from_url(config('REDIS_URL', default='redis://localhost:6379/0'))
+logger = logging.getLogger(__name__)
 
 
 def build_logout_response(request):
@@ -29,6 +31,16 @@ def build_logout_response(request):
     return Response({
         'csrfToken': get_token(request),
     }, status=status.HTTP_200_OK)
+
+
+def dispatch_payout_task(payout_id):
+    try:
+        process_payout.delay(str(payout_id))
+    except Exception:
+        # The payout row and hold entry already exist at this point.
+        # Do not turn that into a 500 for the user just because the broker
+        # publish step or Celery backend is briefly unhealthy.
+        logger.exception("Failed to dispatch payout task for %s", payout_id)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -181,8 +193,9 @@ class PayoutListCreateView(APIView):
                 expires_at=timezone.now() + timedelta(hours=24),
             )
 
-            # Queue the background job
-            process_payout.delay(str(payout.id))
+            # Queue the background job. If broker publish fails, keep the API
+            # response successful and let operators inspect logs / retry later.
+            dispatch_payout_task(payout.id)
 
             return Response(resp_data, status=resp_status)
 
@@ -199,7 +212,11 @@ class PayoutListCreateView(APIView):
             return Response(resp_data, status=resp_status)
 
         finally:
-            redis_client.delete(lock_key)
+            try:
+                redis_client.delete(lock_key)
+            except Exception:
+                # Lock cleanup should not flip a successful payout response into 500.
+                logger.exception("Failed to release idempotency lock %s", lock_key)
 
 
 class LedgerView(APIView):

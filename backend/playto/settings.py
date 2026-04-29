@@ -144,6 +144,10 @@ CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 CELERY_TIMEZONE = 'UTC'
 
 CELERY_BEAT_SCHEDULE = {
+    'retry-pending-payouts': {
+        'task': 'payouts.tasks.retry_pending_payouts',
+        'schedule': 60.0,
+    },
     'retry-stuck-payouts': {
         'task': 'payouts.tasks.retry_stuck_payouts',
         'schedule': 60.0,

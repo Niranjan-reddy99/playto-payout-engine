@@ -10,6 +10,59 @@ from .services import transition_state
 from .exceptions import InvalidTransitionError
 
 logger = get_task_logger(__name__)
+MAX_PAYOUT_ATTEMPTS = 3
+
+
+def retry_countdown_for_attempt(attempt_number):
+    # attempt 1 -> 10s, attempt 2 -> 30s, attempt 3 -> terminal failure
+    return 10 * (3 ** (attempt_number - 1))
+
+
+def finalize_failed_payout(payout_id, reason):
+    with transaction.atomic():
+        payout = PayoutRequest.objects.select_for_update().get(id=payout_id)
+        if payout.status != 'processing':
+            return False
+
+        # Returning held funds and marking the payout failed must be atomic.
+        LedgerEntry.objects.create(
+            merchant=payout.merchant,
+            entry_type='unhold',
+            amount_paise=payout.amount_paise,
+            payout=payout,
+            description=f"Funds returned for failed payout {payout.id}: {reason}",
+        )
+        transition_state(payout, 'failed')
+        logger.warning(f"Payout {payout_id} failed permanently: {reason}")
+        return True
+
+
+def requeue_processing_payout(payout_id):
+    with transaction.atomic():
+        payout = PayoutRequest.objects.select_for_update().get(id=payout_id)
+        if payout.status == 'processing':
+            payout.status = 'pending'
+            payout.updated_at = timezone.now()
+            payout.save(update_fields=['status', 'updated_at'])
+            return True
+    return False
+
+
+def schedule_retry_or_fail(payout_id, attempt_number, reason):
+    if attempt_number >= MAX_PAYOUT_ATTEMPTS:
+        finalize_failed_payout(payout_id, f"{reason} after {attempt_number} attempts")
+        return
+
+    requeued = requeue_processing_payout(payout_id)
+    if not requeued:
+        logger.warning(
+            f"Payout {payout_id} could not be requeued for retry because status changed"
+        )
+        return
+
+    countdown = retry_countdown_for_attempt(attempt_number)
+    logger.warning(f"Payout {payout_id} {reason}. Retrying in {countdown}s")
+    process_payout.apply_async(args=[str(payout_id)], countdown=countdown)
 
 
 def simulate_bank_settlement():
@@ -44,6 +97,7 @@ def process_payout(self, payout_id):
     impossible for a payout to reach 'failed' without the funds being returned.
     These two writes are inseparable by design.
     """
+    attempt_number = None
     try:
         with transaction.atomic():
             payout = PayoutRequest.objects.select_for_update().get(id=payout_id)
@@ -54,14 +108,14 @@ def process_payout(self, payout_id):
             payout.attempts += 1
             payout.last_attempted_at = timezone.now()
             payout.save(update_fields=['attempts', 'last_attempted_at'])
+            attempt_number = payout.attempts
             transition_state(payout, 'processing')
 
         result = simulate_bank_settlement()
         logger.info(f"Bank result for {payout_id}: {result}")
 
         if result == 'hang':
-            # Leave state as 'processing' — retry_stuck_payouts beat task will requeue after 30s.
-            logger.warning(f"Payout {payout_id} hung in processing")
+            schedule_retry_or_fail(payout_id, attempt_number, "hung in processing")
             return
 
         with transaction.atomic():
@@ -94,34 +148,46 @@ def process_payout(self, payout_id):
                 logger.info(f"Payout {payout_id} failed, funds returned")
 
     except Exception as exc:
-        # Exponential backoff: 10s, 30s, 90s (10 * 3^retry_count)
-        countdown = 10 * (3 ** self.request.retries)
-        logger.error(f"Error processing payout {payout_id}: {exc}. Retrying in {countdown}s")
-        raise self.retry(exc=exc, countdown=countdown)
+        logger.exception(f"Error processing payout {payout_id}: {exc}")
+        if attempt_number is None:
+            payout = PayoutRequest.objects.filter(id=payout_id).only('attempts').first()
+            attempt_number = payout.attempts if payout else 1
+        schedule_retry_or_fail(payout_id, attempt_number, "raised an exception")
 
 
 @shared_task(name='payouts.tasks.retry_stuck_payouts')
 def retry_stuck_payouts():
     """
     Celery Beat task. Runs every 60 seconds.
-    Finds payouts stuck in 'processing' for >30 seconds with <3 attempts.
+    Finds payouts stuck in 'processing' for >30 seconds.
     """
     threshold = timezone.now() - timedelta(seconds=30)
     stuck = PayoutRequest.objects.filter(
         status='processing',
         updated_at__lt=threshold,
-        attempts__lt=3,
     )
     count = stuck.count()
     if count:
         logger.info(f"Found {count} stuck payouts, requeueing")
     for payout in stuck:
-        # Reset to pending so process_payout can pick it up
-        with transaction.atomic():
-            p = PayoutRequest.objects.select_for_update().get(id=payout.id)
-            if p.status == 'processing':
-                p.status = 'pending'
-                p.save(update_fields=['status'])
+        schedule_retry_or_fail(payout.id, payout.attempts, "stuck in processing")
+
+
+@shared_task(name='payouts.tasks.retry_pending_payouts')
+def retry_pending_payouts():
+    """
+    Safety net for accepted payouts that were committed but not dispatched.
+    Re-enqueue pending payouts older than 30 seconds.
+    """
+    threshold = timezone.now() - timedelta(seconds=30)
+    orphaned = PayoutRequest.objects.filter(
+        status='pending',
+        updated_at__lt=threshold,
+    )
+    count = orphaned.count()
+    if count:
+        logger.info(f"Found {count} pending payouts to re-dispatch")
+    for payout in orphaned:
         process_payout.delay(str(payout.id))
 
 

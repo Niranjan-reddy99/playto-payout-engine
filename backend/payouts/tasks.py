@@ -67,7 +67,7 @@ def schedule_retry_or_fail(payout_id, attempt_number, reason):
 
 def simulate_bank_settlement():
     """70% success, 20% fail, 10% hang (simulates timeout)"""
-    time.sleep(1)  # simulate network latency
+    time.sleep(0.25)  # simulate bank latency without making the demo feel sluggish
     r = random.random()
     if r < 0.70:
         return 'success'

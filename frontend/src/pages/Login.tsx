@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { apiClient } from '../api/client';
+import { apiClient, ensureCsrfToken, setCsrfToken } from '../api/client';
 
 interface Props {
   onLogin: () => void;
@@ -17,7 +17,9 @@ export function Login({ onLogin }: Props) {
     setError('');
 
     try {
-      await apiClient.post('/auth/login/', { username, password });
+      await ensureCsrfToken();
+      const response = await apiClient.post('/auth/login/', { username, password });
+      setCsrfToken(response.data?.csrfToken);
       onLogin();
     } catch (err: any) {
       setError(err.response?.data?.error || 'Invalid username or password');

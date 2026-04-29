@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 from django.utils import timezone
 from django.contrib.auth import authenticate, login, logout
+from django.middleware.csrf import get_token
 from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 from django.utils.decorators import method_decorator
 from rest_framework import status
@@ -23,10 +24,24 @@ from .tasks import process_payout
 redis_client = redis.Redis.from_url(config('REDIS_URL', default='redis://localhost:6379/0'))
 
 
+def build_logout_response(request):
+    logout(request)
+    return Response({
+        'csrfToken': get_token(request),
+    }, status=status.HTTP_200_OK)
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 @method_decorator(ensure_csrf_cookie, name='dispatch')
 class LoginView(APIView):
     permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response({
+            'csrfToken': get_token(request),
+            'authenticated': request.user.is_authenticated,
+            'username': request.user.username if request.user.is_authenticated else None,
+        })
 
     def post(self, request):
         username = request.data.get('username', '').strip()
@@ -37,11 +52,21 @@ class LoginView(APIView):
         if user is None:
             return Response({'error': 'Invalid username or password'}, status=status.HTTP_401_UNAUTHORIZED)
         login(request, user)
-        return Response({'username': user.username})
+        return Response({
+            'username': user.username,
+            'csrfToken': get_token(request),
+        })
+
+@method_decorator(csrf_exempt, name='dispatch')
+@method_decorator(ensure_csrf_cookie, name='dispatch')
+class LogoutView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        return build_logout_response(request)
 
     def delete(self, request):
-        logout(request)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return build_logout_response(request)
 
 
 class BalanceView(APIView):

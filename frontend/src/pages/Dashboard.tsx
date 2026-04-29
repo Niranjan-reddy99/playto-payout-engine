@@ -3,9 +3,7 @@ import { BalanceSummary } from '../components/BalanceSummary';
 import { PayoutForm } from '../components/PayoutForm';
 import { PayoutHistory } from '../components/PayoutHistory';
 import { LedgerFeed } from '../components/LedgerFeed';
-import axios from 'axios';
-
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+import { apiClient, setCsrfToken } from '../api/client';
 
 interface Props {
   onLogout: () => void;
@@ -14,7 +12,8 @@ interface Props {
 export function Dashboard({ onLogout }: Props) {
   const handleLogout = useCallback(async () => {
     try {
-      await axios.post(`${API_BASE}/api-auth/logout/`, {}, { withCredentials: true });
+      const response = await apiClient.post('/auth/logout/');
+      setCsrfToken(response.data?.csrfToken);
     } finally {
       onLogout();
     }
